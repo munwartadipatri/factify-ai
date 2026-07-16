@@ -12,7 +12,7 @@ spring:
     name: factify-backend
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/factify
+    url: jdbc:postgresql://factify-ai.onrender.com:5432/factify
     username: postgres
     password: admin
     driver-class-name: org.postgresql.Driver
