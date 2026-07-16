@@ -13,8 +13,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://dpg-d9ce9g9kh4rs73ckkmjg-a:5432/factify
-    username: factify_fo5e_user
-    password: TzZK0GGViT7lHDSPIbL3DJoURuve4sWN
+    username: postgres
+    password: admin
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: FactifyHikariPool
