@@ -27,8 +27,8 @@ spring:
 
   sql:
     init:
-      mode: always
-      continue-on-error: false
+      mode: ${SPRING_SQL_INIT_MODE:never}
+      continue-on-error: ${SPRING_SQL_INIT_CONTINUE_ON_ERROR:false}
 
   jpa:
     open-in-view: false
@@ -62,7 +62,7 @@ spring:
     vectorstore:
       pgvector:
         # Creates pgvector extensions, vector_store table, and index on first startup.
-        initialize-schema: true
+        initialize-schema: ${SPRING_AI_VECTORSTORE_PGVECTOR_INITIALIZE_SCHEMA:true}
         # Keep false for first-run auto-creation; enable later after the table exists.
         schema-validation: false
         remove-existing-vector-store-table: false
