@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="FactifyBackendApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="factify-backend" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.factify.backend.FactifyBackendApplication" />
+    <envs>
+      <env name="SPRING_AI_GOOGLE_GENAI_API_KEY" value="PASTE_VALID_GEMINI_API_KEY_HERE" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
