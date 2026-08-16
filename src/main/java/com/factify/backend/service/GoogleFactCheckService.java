@@ -68,6 +68,11 @@ public class GoogleFactCheckService {
     }
 
     public List<FactCheckEvidence> search(String query) {
+        return search(query, List.of());
+    }
+
+    /** Searches the original claim plus a small number of Tavily-derived claim candidates. */
+    public List<FactCheckEvidence> search(String query, List<String> tavilyQueryCandidates) {
         if (!enabled) {
             log.debug("Google Fact Check lookup skipped because it is disabled.");
             return List.of();
@@ -82,16 +87,26 @@ public class GoogleFactCheckService {
         }
 
         String trimmedQuery = query.trim();
-        List<String> queryVariants = buildQueryVariants(trimmedQuery);
+        LinkedHashSet<String> queryVariants = new LinkedHashSet<>(buildQueryVariants(trimmedQuery));
+        if (tavilyQueryCandidates != null) {
+            for (String candidate : tavilyQueryCandidates) {
+                addVariant(queryVariants, candidate);
+                if (queryVariants.size() >= 8) {
+                    break;
+                }
+            }
+        }
+        List<String> boundedQueryVariants = queryVariants.stream().limit(8).toList();
         log.info(
-                "Google Fact Check lookup started. queryLength={}, queryVariants={}, pageSize={}",
+                "Google Fact Check lookup started. queryLength={}, queryVariants={}, tavilyCandidates={}, pageSize={}",
                 trimmedQuery.length(),
-                queryVariants.size(),
+                boundedQueryVariants.size(),
+                tavilyQueryCandidates == null ? 0 : tavilyQueryCandidates.size(),
                 pageSize
         );
 
         List<FactCheckEvidence> combinedEvidence = new ArrayList<>();
-        for (String queryVariant : queryVariants) {
+        for (String queryVariant : boundedQueryVariants) {
             List<FactCheckEvidence> evidence = searchSingleQuery(queryVariant);
             combinedEvidence.addAll(evidence);
         }

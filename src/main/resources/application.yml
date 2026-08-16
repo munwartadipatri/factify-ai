@@ -12,9 +12,9 @@ spring:
     name: factify-backend
 
   datasource:
-    url: jdbc:postgresql://dpg-d9ce9g9kh4rs73ckkmjg-a:5432/factify
-    username: factify_fo5e_user
-    password: TzZK0GGViT7lHDSPIbL3DJoURuve4sWN
+    url: jdbc:postgresql://db.hvzeteqtdwqlffubdpco.supabase.co:5432/postgres
+    username: postgres
+    password: ${SPRING_DATASOURCE_PASSWORD:admin}
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: FactifyHikariPool
@@ -49,6 +49,7 @@ spring:
     google:
       genai:
         api-key: ${SPRING_AI_GOOGLE_GENAI_API_KEY}
+
         chat:
           model: gemini-3.1-flash-lite
           temperature: 0.1
@@ -74,6 +75,12 @@ spring:
         max-document-batch-size: 1000
 
 factify:
+  tavily:
+    enabled: true
+    api-key: ${TAVILY_API_KEY:}
+    # Advanced retrieves higher-quality snippets for claim disambiguation (2 Tavily credits/request).
+    search-depth: advanced
+    max-results: 5
   google-fact-check:
     enabled: true
     api-key: ${GOOGLE_FACT_CHECK_API_KEY:}
