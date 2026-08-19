@@ -2,6 +2,7 @@ package com.factify.backend.controller;
 
 import com.factify.backend.domain.model.FactCheckVerdict;
 import com.factify.backend.service.FactCheckAgent;
+import com.factify.backend.service.FactCheckStreamingService;
 import com.factify.backend.service.GoogleFactCheckService;
 import org.springframework.ai.content.Media;
 import org.springframework.core.io.ByteArrayResource;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -42,13 +44,45 @@ public class FactCheckController {
 
     private final FactCheckAgent factCheckAgent;
     private final GoogleFactCheckService googleFactCheckService;
+    private final FactCheckStreamingService factCheckStreamingService;
 
     public FactCheckController(
             FactCheckAgent factCheckAgent,
-            GoogleFactCheckService googleFactCheckService
+            GoogleFactCheckService googleFactCheckService,
+            FactCheckStreamingService factCheckStreamingService
     ) {
         this.factCheckAgent = factCheckAgent;
         this.googleFactCheckService = googleFactCheckService;
+        this.factCheckStreamingService = factCheckStreamingService;
+    }
+
+    @PostMapping(path = "/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamMessage(@RequestBody VerifyMessageRequest request) {
+        SseEmitter emitter = new SseEmitter(180_000L);
+        if (request == null || !StringUtils.hasText(request.message())) {
+            emitter.completeWithError(new IllegalArgumentException("Field 'message' must not be null or empty."));
+            return emitter;
+        }
+        factCheckStreamingService.streamText(request.message(), emitter);
+        return emitter;
+    }
+
+    @PostMapping(path = "/stream", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamMessage(
+            @RequestPart(value = "message", required = false) String message,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files
+    ) {
+        SseEmitter emitter = new SseEmitter(180_000L);
+        boolean hasMessage = StringUtils.hasText(message);
+        boolean hasFiles = files != null && files.stream().anyMatch(file -> !file.isEmpty());
+        if (!hasMessage && !hasFiles) {
+            emitter.completeWithError(new IllegalArgumentException("Field 'message' or an image attachment is required."));
+            return emitter;
+        }
+        factCheckStreamingService.streamMedia(message, toImageMedia(files), emitter);
+        return emitter;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)

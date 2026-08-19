@@ -19,11 +19,18 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Service
 public class FactCheckAgent {
 
+    @FunctionalInterface
+    public interface ProgressListener {
+        ProgressListener NOOP = (stage, message) -> { };
+
+        void onProgress(String stage, String message);
+    }
 
 
     private static final Logger log = LoggerFactory.getLogger(FactCheckAgent.class);
@@ -112,22 +119,44 @@ public class FactCheckAgent {
     }
 
     public FactCheckVerdict verifyMessage(String incomingMessage) {
+        return verifyMessage(incomingMessage, ProgressListener.NOOP);
+    }
+
+    public FactCheckVerdict verifyMessage(String incomingMessage, ProgressListener progressListener) {
         if (!StringUtils.hasText(incomingMessage)) {
             throw new IllegalArgumentException("incomingMessage must not be blank");
         }
 
+        ProgressListener listener = progressListener == null ? ProgressListener.NOOP : progressListener;
         log.info("Fact-check request received. mode=text, messageLength={}", incomingMessage.length());
-        return semanticCacheService.checkCache(incomingMessage).orElseGet(() ->
-                generateAndCacheVerdict(incomingMessage));
+        notify(listener, "CHECKING_CACHE", "Checking the semantic cache.");
+        Optional<FactCheckVerdict> cached = semanticCacheService.checkCache(incomingMessage);
+        if (cached.isPresent()) {
+            notify(listener, "CACHE_HIT", "A matching cached verdict was found.");
+            notify(listener, "COMPLETE", "Verification complete.");
+            return cached.get();
+        }
+
+        notify(listener, "CACHE_MISS", "No cached verdict found. Gathering evidence.");
+        return generateAndCacheVerdict(incomingMessage, listener);
     }
 
     public FactCheckVerdict verifyMessage(String incomingMessage, List<Media> attachedMedia) {
+        return verifyMessage(incomingMessage, attachedMedia, ProgressListener.NOOP);
+    }
+
+    public FactCheckVerdict verifyMessage(
+            String incomingMessage,
+            List<Media> attachedMedia,
+            ProgressListener progressListener
+    ) {
         String normalizedMessage = StringUtils.hasText(incomingMessage)
                 ? incomingMessage
                 : "Extract the claims visible in the attached image content and fact-check them.";
+        ProgressListener listener = progressListener == null ? ProgressListener.NOOP : progressListener;
 
         if (attachedMedia == null || attachedMedia.isEmpty()) {
-            return verifyMessage(normalizedMessage);
+            return verifyMessage(normalizedMessage, listener);
         }
 
         log.info(
@@ -135,23 +164,44 @@ public class FactCheckAgent {
                 normalizedMessage.length(),
                 attachedMedia.size()
         );
-        return generateVerdict(normalizedMessage, attachedMedia);
+        notify(listener, "SEARCHING", "Reading the image and gathering evidence.");
+        FactCheckVerdict verdict = generateVerdict(normalizedMessage, attachedMedia, listener);
+        notify(listener, "COMPLETE", "Verification complete.");
+        return verdict;
     }
 
     private FactCheckVerdict generateAndCacheVerdict(String incomingMessage) {
-        FactCheckVerdict verdict = generateVerdict(incomingMessage, List.of());
+        return generateAndCacheVerdict(incomingMessage, ProgressListener.NOOP);
+    }
+
+    private FactCheckVerdict generateAndCacheVerdict(
+            String incomingMessage,
+            ProgressListener progressListener
+    ) {
+        FactCheckVerdict verdict = generateVerdict(incomingMessage, List.of(), progressListener);
+        notify(progressListener, "SAVING_CACHE", "Saving this verdict for future lookups.");
         semanticCacheService.saveToCache(incomingMessage, verdict);
+        notify(progressListener, "COMPLETE", "Verification complete.");
         return verdict;
     }
 
     private FactCheckVerdict
     generateVerdict(String incomingMessage, List<Media> attachedMedia) {
+        return generateVerdict(incomingMessage, attachedMedia, ProgressListener.NOOP);
+    }
+
+    private FactCheckVerdict generateVerdict(
+            String incomingMessage,
+            List<Media> attachedMedia,
+            ProgressListener progressListener
+    ) {
         log.debug(
                 "Calling fact-check model. messageLength={}, mediaCount={}",
                 incomingMessage.length(),
                 attachedMedia.size()
         );
 
+        notify(progressListener, "SEARCHING", "Searching trusted evidence sources.");
         List<TavilySearchService.SearchEvidence> tavilyEvidence = tavilySearchService.search(incomingMessage);
         List<GoogleFactCheckService.FactCheckEvidence> factCheckEvidence = tavilyEvidence.isEmpty()
                 ? googleFactCheckService.search(incomingMessage)
@@ -163,6 +213,8 @@ public class FactCheckAgent {
         String formattedTavilyEvidence = tavilySearchService.formatForPrompt(tavilyEvidence);
         String currentDate = LocalDate.now(ZoneId.systemDefault()).toString();
         log.debug("Google Fact Check evidence for prompt: {}", preview(formattedEvidence, 1500));
+        notify(progressListener, "EVIDENCE_READY", "Evidence gathered. Preparing the fact-check.");
+        notify(progressListener, "GENERATING_VERDICT", "Generating a structured verdict.");
 
         String response = chatClientBuilder
                 .build()
@@ -180,6 +232,7 @@ public class FactCheckAgent {
 
         log.debug("Model raw response preview: {}", preview(response, 1200));
         FactCheckVerdict parsedVerdict = parseVerdict(response);
+        notify(progressListener, "VALIDATING_SOURCES", "Validating returned source links.");
         FactCheckVerdict validatedVerdict = sourceLinkValidator.validate(parsedVerdict);
         FactCheckVerdict evidenceSafeVerdict = applyEvidenceSafetyChecks(incomingMessage, factCheckEvidence, validatedVerdict);
         log.info(
@@ -188,6 +241,14 @@ public class FactCheckAgent {
                 evidenceSafeVerdict.trustedSources().size()
         );
         return evidenceSafeVerdict;
+    }
+
+    private void notify(ProgressListener listener, String stage, String message) {
+        try {
+            listener.onProgress(stage, message);
+        } catch (RuntimeException ex) {
+            log.debug("Progress listener failed. stage={}", stage, ex);
+        }
     }
 
     private FactCheckVerdict applyEvidenceSafetyChecks(
