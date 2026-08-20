@@ -24,7 +24,7 @@ public class SemanticCacheService {
     private static final Logger log = LoggerFactory.getLogger(SemanticCacheService.class);
 
     private static final double CACHE_HIT_THRESHOLD = 0.92;
-    private static final int CACHE_SCHEMA_VERSION = 11;
+    private static final int CACHE_SCHEMA_VERSION = 12;
     private static final String CACHE_KIND = "fact-check-verdict";
     private static final String SCHEMA_VERSION_METADATA_KEY = "schemaVersion";
     private static final String VERDICT_PAYLOAD_METADATA_KEY = "verdictPayload";

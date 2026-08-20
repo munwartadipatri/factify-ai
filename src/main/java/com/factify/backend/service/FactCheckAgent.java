@@ -231,7 +231,8 @@ public class FactCheckAgent {
                 .content();
 
         log.debug("Model raw response preview: {}", preview(response, 1200));
-        FactCheckVerdict parsedVerdict = parseVerdict(response);
+        FactCheckVerdict modelVerdict = parseVerdict(response);
+        FactCheckVerdict parsedVerdict = reconcileOverallRating(modelVerdict);
         notify(progressListener, "VALIDATING_SOURCES", "Validating returned source links.");
         FactCheckVerdict validatedVerdict = sourceLinkValidator.validate(parsedVerdict);
         FactCheckVerdict evidenceSafeVerdict = applyEvidenceSafetyChecks(incomingMessage, factCheckEvidence, validatedVerdict);
@@ -241,6 +242,38 @@ public class FactCheckAgent {
                 evidenceSafeVerdict.trustedSources().size()
         );
         return evidenceSafeVerdict;
+    }
+
+    private FactCheckVerdict reconcileOverallRating(FactCheckVerdict verdict) {
+        if (verdict == null || verdict.analyzedClaims().isEmpty()) {
+            return verdict;
+        }
+
+        VerdictRating calculatedRating = aggregateRating(
+                verdict.analyzedClaims().stream()
+                        .map(claim -> claim.claimRating() == null
+                                ? VerdictRating.UNVERIFIED
+                                : claim.claimRating())
+                        .toList()
+        );
+
+        if (verdict.rating() != calculatedRating) {
+            log.warn(
+                    "Correcting inconsistent overall rating. modelRating={}, calculatedRating={}, claims={}",
+                    verdict.rating(),
+                    calculatedRating,
+                    verdict.analyzedClaims().size()
+            );
+            return new FactCheckVerdict(
+                    calculatedRating,
+                    verdict.confidenceScore(),
+                    verdict.conciseSummary(),
+                    verdict.analyzedClaims(),
+                    verdict.trustedSources()
+            );
+        }
+
+        return verdict;
     }
 
     private void notify(ProgressListener listener, String stage, String message) {
@@ -480,14 +513,21 @@ public class FactCheckAgent {
     }
 
     private VerdictRating aggregateRating(List<VerdictRating> ratings) {
-        if (ratings.contains(VerdictRating.FALSE)) {
-            return VerdictRating.FALSE;
+        boolean hasTrue = ratings.contains(VerdictRating.TRUE);
+        boolean hasFalse = ratings.contains(VerdictRating.FALSE);
+
+        // Unverified evidence takes precedence because the whole message cannot be confirmed.
+        if (ratings.contains(VerdictRating.UNVERIFIED)) {
+            return VerdictRating.UNVERIFIED;
         }
         if (ratings.contains(VerdictRating.MISLEADING)) {
             return VerdictRating.MISLEADING;
         }
-        if (ratings.contains(VerdictRating.UNVERIFIED)) {
-            return VerdictRating.UNVERIFIED;
+        if (hasTrue && hasFalse) {
+            return VerdictRating.MISLEADING;
+        }
+        if (hasFalse) {
+            return VerdictRating.FALSE;
         }
         return VerdictRating.TRUE;
     }
